@@ -45,7 +45,7 @@ http {
 
 # ---- Layer 4 (TCP) SNI routing on port 443 ----
 stream {
-    access_log /dev/stdout basic;
+    access_log /dev/stdout;
     error_log  /dev/stderr;
 
     # Route by SNI extracted from the TLS ClientHello.

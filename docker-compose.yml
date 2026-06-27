@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  nginx-frontproxy:
+    build: .
+    image: nginx-frontproxy
+    container_name: nginx-frontproxy
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      - RMSYNC_IP=${RMSYNC_IP}
+      - RMSYNC_HTTP_PORT=${RMSYNC_HTTP_PORT:-80}
+      - RMSYNC_HTTPS_PORT=${RMSYNC_HTTPS_PORT:-443}
+      - MEDIAWIKI_PORT=${MEDIAWIKI_PORT:-8080}

@@ -1,0 +1,76 @@
+# Front proxy for the MediaWiki host.
+# Variables substituted at container start via envsubst:
+#   RMSYNC_IP       - IP of the rm-sync host (e.g. 192.168.0.154)
+#   RMSYNC_HTTP_PORT  - rm-sync HTTP port (default 80)
+#   RMSYNC_HTTPS_PORT - rm-sync HTTPS port (default 443)
+#   MEDIAWIKI_PORT  - MediaWiki container port on localhost (default 8080)
+
+events {
+    worker_connections 1024;
+}
+
+# ---- Layer 7 (HTTP) routing on port 80 ----
+http {
+    access_log /dev/stdout;
+    error_log  /dev/stderr;
+
+    # rm-sync: forwards ACME HTTP-01 challenges and any other plain HTTP.
+    server {
+        listen 80;
+        server_name remarkable.brothersbrothers.net;
+
+        location / {
+            proxy_pass http://${RMSYNC_IP}:${RMSYNC_HTTP_PORT};
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+    # MediaWiki: default for any other hostname on port 80.
+    server {
+        listen 80 default_server;
+        server_name _;
+
+        location / {
+            proxy_pass http://127.0.0.1:${MEDIAWIKI_PORT};
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+
+# ---- Layer 4 (TCP) SNI routing on port 443 ----
+stream {
+    access_log /dev/stdout basic;
+    error_log  /dev/stderr;
+
+    # Route by SNI extracted from the TLS ClientHello.
+    # TLS is NOT terminated here — the encrypted stream is forwarded as-is.
+    map $ssl_preread_server_name $sni_backend {
+        remarkable.brothersbrothers.net   rmsync_443;
+        default                           reject_443;
+    }
+
+    upstream rmsync_443 {
+        server ${RMSYNC_IP}:${RMSYNC_HTTPS_PORT};
+    }
+
+    # Sink for unrecognized SNIs — nothing listens on port 1, so nginx
+    # closes the connection immediately.
+    # To add a future HTTPS backend, extend the map above and add an upstream.
+    upstream reject_443 {
+        server 127.0.0.1:1;
+    }
+
+    server {
+        listen 443;
+        proxy_pass        $sni_backend;
+        ssl_preread       on;
+        proxy_timeout     10m;
+        proxy_connect_timeout 5s;
+    }
+}
